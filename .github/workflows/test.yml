@@ -39,6 +39,7 @@ jobs:
   # Build and test latest on Linux using only CMake
   cmake:
     strategy:
+      fail-fast: false
       matrix:
         compiler: [clang, gcc]
         include:
@@ -105,6 +106,7 @@ jobs:
   # Build and test many combinations on Linux/OS X using Conan
   conan:
     strategy:
+      fail-fast: false
       matrix:
         name: [
           clang-head-libc++, clang-head-libstdc++,
@@ -249,6 +251,7 @@ jobs:
   # Build and test on Windows using Conan
   windows:
     strategy:
+      fail-fast: false
       matrix:
         name: [2022-64, 2022-32, 2019-64, 2019-32]
         include:
