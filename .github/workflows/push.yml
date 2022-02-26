@@ -1,343 +1,158 @@
 ---
-name: push
+name: test
 
 on:
   push:
     branches:
-      - '**'
+      - "**"
 
 jobs:
-  # Build and test many combinations on Linux/OS X using Conan
-  clang-tidy:
+  linux:
     strategy:
       matrix:
-        int128: ["True", "False"]
+        name:
+          [
+            "gcc-head",
+            "coverage",
+            "clang-tidy",
+            "clang-head-libstdcpp",
+            "clang-head-libcpp",
+            "clang-static-analyzer",
+            "valgrind",
+            "cppcheck",
+            "include-what-you-use",
+            "lint",
+          ]
+        include:
+          - name: gcc-head
+            container: johnmcfarlane/cnl_ci:gcc-head
+            script: test-gcc
+          - name: coverage
+            container: johnmcfarlane/cnl_ci:gcc-head
+            script: coverage
+          - name: clang-tidy
+            container: johnmcfarlane/cnl_ci:clang-head-libcpp
+            script: clang-tidy
+          - name: clang-head-libstdcpp
+            container: johnmcfarlane/cnl_ci:clang-head-libstdcpp
+            script: test-clang
+          - name: clang-head-libcpp
+            container: johnmcfarlane/cnl_ci:clang-head-libcpp
+            script: test-clang
+          - name: clang-static-analyzer
+            container: johnmcfarlane/cnl_ci:clang-head-libcpp
+            script: clang-static-analyzer
+          - name: valgrind
+            container: johnmcfarlane/cnl_ci:clang-head-libcpp
+            script: valgrind
+          - name: cppcheck
+            container: johnmcfarlane/cnl_ci:gcc-head
+            script: cppcheck
+          - name: include-what-you-use
+            container: johnmcfarlane/cnl_ci:clang-11
+            script: iwyu
+          - name: lint
+            container: johnmcfarlane/cnl_ci:clang-head
+            script: lint
 
-    container: johnmcfarlane/cnl_ci:clang-head-libcpp
+    container: ${{matrix.container}}
     runs-on: ubuntu-20.04
     steps:
-      - uses: actions/checkout@v2
+      - name: Clone WSS
+        uses: actions/checkout@v2
 
-      - name: Restore Dependency Cache
+      - name: Load package caches
         uses: actions/cache@v2
         env:
-          CACHE_SLUG: conan-clang-tidy
+          CACHE_SLUG: ${{ github.job }}-${{ matrix.name }}
         with:
           path: |
             /github/home/.conan/data
-          key: ${{ env.CACHE_SLUG }}-${{ github.ref_name }}-${{ hashFiles('conanfile.py','.github/conan/**','test/toolchain/**') }}
+            /github/home/.cache/pre-commit
+          key: ${{ env.CACHE_SLUG }}-${{ github.ref_name }}
           restore-keys: |
-            ${{ env.CACHE_SLUG }}-main-
-            ${{ env.CACHE_SLUG }}-${{ github.ref_name }}-
+            ${{ env.CACHE_SLUG }}-main
+            ${{ env.CACHE_SLUG }}-${{ github.ref_name }}
             ${{ env.CACHE_SLUG }}-
 
-      - name: Restore Compiler Cache
+      - name: Load compiler cache
         uses: hendrikmuhs/ccache-action@v1
         env:
-          CACHE_SLUG: clang-tidy
+          CACHE_SLUG: ${{ github.job }}-${{ matrix.name }}
         with:
           key: ${{ env.CACHE_SLUG }}
 
-      - name: Cache Report
+      - name: Report Caches
         run: |
           ccache -s
           conan search
 
       - name: Initialise Conan
         run: |
-          conan config install $GITHUB_WORKSPACE/.github/conan/settings.yml
+          $GITHUB_WORKSPACE/.github/workflows/scripts/init-conan
 
-      - name: Install dependencies
+      - name: Perform Test
         run: |
-          conan install \
-            --build=missing \
-            --profile $GITHUB_WORKSPACE/.github/conan/profiles/linux-clang-head-libc++ \
-            --options clang_tidy=True \
-            --options int128=${{ matrix.int128 }} \
-            --options sanitize=False \
-            --env CONAN_CMAKE_GENERATOR=Ninja \
-            $GITHUB_WORKSPACE
+          $GITHUB_WORKSPACE/.github/workflows/scripts/${{ matrix.script }}
 
-      - name: Build tests
-        run: conan build --build --configure $GITHUB_WORKSPACE
-
-      - name: Test library
-        run: conan build --test $GITHUB_WORKSPACE
-
-      - name: Cache Report
-        run: |
-          conan search
-
-  # Build and test many combinations on Linux/OS X using Conan
-  conan:
-    strategy:
-      matrix:
-        name: [
-          clang-head-libc++, clang-head-libstdc++,
-          clang-13-libc++, clang-13-libstdc++,
-          clang-12-libstdc++,
-          clang-11-libstdc++,
-          clang-10-libstdc++,
-          gcc-head, gcc-11, gcc-10, osx-clang-13, osx-gcc-11, gcc-10-armv7
-        ]
-        include:
-          # Clang HEAD
-          - name: clang-head-libc++
-            generator: "Unix Makefiles"
-            linux-container: johnmcfarlane/cnl_ci:clang-head-libcpp
-            os-version: ubuntu-20.04
-            profile: linux-clang-head-libc++
-          - name: clang-head-libstdc++
-            linux-container: johnmcfarlane/cnl_ci:clang-head-libstdcpp
-            os-version: ubuntu-20.04
-            profile: linux-clang-head-libstdc++
-
-          # Clang-13
-          - name: clang-13-libc++
-            linux-container: johnmcfarlane/cnl_ci:clang-13-libcpp
-            os-version: ubuntu-20.04
-            profile: linux-clang-13-libc++
-          - name: clang-13-libstdc++
-            linux-container: johnmcfarlane/cnl_ci:clang-13-libstdcpp
-            os-version: ubuntu-20.04
-            profile: linux-clang-13-libstdc++
-
-          # Clang-12 (Contrary)
-          - name: clang-12-libstdc++
-            generator: "Unix Makefiles"
-            linux-container: johnmcfarlane/cnl_ci:clang-12-libstdcpp
-            os-version: ubuntu-20.04
-            profile: linux-clang-12-libstdc++
-
-          # Clang-11
-          - name: clang-11-libstdc++
-            linux-container: johnmcfarlane/cnl_ci:clang-11-libstdcpp
-            os-version: ubuntu-20.04
-            profile: linux-clang-11-libstdc++
-
-          # Clang-10
-          - name: clang-10-libstdc++
-            linux-container: johnmcfarlane/cnl_ci:clang-10-libstdcpp
-            os-version: ubuntu-20.04
-            profile: linux-clang-10-libstdc++
-
-          # GCC HEAD
-          - name: gcc-head
-            linux-container: johnmcfarlane/cnl_ci:gcc-head
-            os-version: ubuntu-20.04
-            profile: linux-gcc-head
-
-          # GCC-11
-          - name: gcc-11
-            linux-container: johnmcfarlane/cnl_ci:gcc-11
-            os-version: ubuntu-20.04
-            profile: linux-gcc-11
-
-          # GCC-10
-          - name: gcc-10
-            generator: "Unix Makefiles"
-            linux-container: johnmcfarlane/cnl_ci:gcc-10
-            os-version: ubuntu-20.04
-            profile: linux-gcc-10
-
-          # OS X Clang (latest)
-          - name: osx-clang-13
-            os-version: macos-10.15
-            profile: osx-clang-13
-
-          # OS X GCC-11
-          - name: osx-gcc-11
-            os-version: macos-10.15
-            profile: osx-gcc-11
-
-          # GCC-10 (for ARMv7)
-          - name: gcc-10-armv7
-            linux-container: johnmcfarlane/cnl_ci:gcc-10-arm
-            os-version: ubuntu-20.04
-            profile: linux-gcc-10-armv7
-
-    container: ${{matrix.linux-container}}
-    runs-on: ${{matrix.os-version}}
-
-    steps:
-      - uses: actions/checkout@v2
-
-      - name: Restore Dependency Cache
-        uses: actions/cache@v2
-        env:
-          CACHE_SLUG: conan-${{ matrix.name }}
+      - name: Upload Clang Static Analyzer report
+        uses: actions/upload-artifact@v2
+        if: ${{ matrix.name == 'clang-static-analyzer' && failure() }}
         with:
-          path: |
-            /github/home/.conan/data
-            /Users/runner/.conan/data
-          key: ${{ env.CACHE_SLUG }}-${{ github.ref_name }}-${{ hashFiles('conanfile.py','.github/conan/**','test/toolchain/**') }}
-          restore-keys: |
-            ${{ env.CACHE_SLUG }}-main-
-            ${{ env.CACHE_SLUG }}-${{ github.ref_name }}-
-            ${{ env.CACHE_SLUG }}-
+          name: report
+          path: ${{github.workspace}}/scan-build
+          if-no-files-found: error
 
-      - name: Install Brew packages
-        if: ( matrix.os-version == 'macos-10.15' )
-        run: brew install ccache conan ninja
-
-      - name: Restore Compiler Cache
-        uses: hendrikmuhs/ccache-action@v1
-        env:
-          CACHE_SLUG: conan-${{ matrix.name }}
+      - name: Upload code coverage report
+        uses: actions/upload-artifact@v2
+        if: ${{ matrix.name == 'coverage' && always() }}
         with:
-          key: ${{ env.CACHE_SLUG }}
+          name: report
+          path: ${{github.workspace}}/coverage-report
+          if-no-files-found: error
 
-      - name: Cache Report
+      - name: Report Caches
         run: |
           ccache -s
           conan search
 
-      - name: Initialise Conan
-        run: |
-          conan config install $GITHUB_WORKSPACE/.github/conan/settings.yml
-
-      - name: Install dependencies
-        env:
-          CONAN_CMAKE_GENERATOR: "${{matrix.generator}}"
-        run: |
-          conan install \
-            --build=missing \
-            --env:build CONAN_CMAKE_GENERATOR="${CONAN_CMAKE_GENERATOR:-Ninja}" \
-            --env:host CONAN_CMAKE_GENERATOR="${CONAN_CMAKE_GENERATOR:-Ninja}" \
-            --profile $GITHUB_WORKSPACE/.github/conan/profiles/${{matrix.profile}} \
-            $GITHUB_WORKSPACE
-
-      - name: Build tests
-        run: conan build --build --configure --install $GITHUB_WORKSPACE
-
-      - name: Test library
-        if: ( matrix.name != 'gcc-10-armv7' )
-        run: conan build --test $GITHUB_WORKSPACE
-
-      - name: Run benchmarks
-        if: ( matrix.name != 'clang-11' && matrix.name != 'gcc-10-armv7' )
-        run: |
-          ./test/benchmark/test-benchmark --benchmark_format=csv | tee result.csv \
-          "${GITHUB_WORKSPACE}"/test/benchmark/report.py result.csv
-
-      - name: Cache Report
-        run: |
-          conan search
-
-  # Build and test on Windows using Conan
   windows:
-    strategy:
-      matrix:
-        name: [2022-64, 2022-32, 2019-64, 2019-32]
-        include:
-          - name: 2022-64
-            build-profile: msvc-17-x86_64
-            host-profile: msvc-17-x86_64
-            runs-on: "windows-2022"
-          - name: 2022-32
-            build-profile: msvc-17-x86_64
-            host-profile: msvc-17-x86
-            runs-on: "windows-2022"
-          - name: 2019-64
-            build-profile: msvc-16-x86_64
-            host-profile: msvc-16-x86_64
-            runs-on: "windows-2019"
-          - name: 2019-32
-            build-profile: msvc-16-x86_64
-            host-profile: msvc-16-x86
-            runs-on: "windows-2019"
-        build_type: ["Debug", "Release"]
-
-    runs-on: ${{matrix.runs-on}}
-
+    runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v2
+      - name: Clone WSS
+        uses: actions/checkout@v2
 
-      - name: Restore Dependency Cache
+      - name: Load package caches
         uses: actions/cache@v2
         env:
-          CACHE_SLUG: conan-windows-${{ matrix.name }}-${{ matrix.build_type }}
+          CACHE_SLUG: ${{ github.job }}-${{ matrix.name }}
         with:
           path: |
-            ~\AppData\Local\pip\Cache
             ~\.conan\data
-          key: ${{ env.CACHE_SLUG }}-${{ github.ref_name }}-${{ hashFiles('conanfile.py','.github/conan/**','test/toolchain/**') }}
+            ~\AppData\Local\pip\Cache
+          key: ${{ env.CACHE_SLUG }}-${{ github.ref_name }}
           restore-keys: |
-            ${{ env.CACHE_SLUG }}-main-
-            ${{ env.CACHE_SLUG }}-${{ github.ref_name }}-
+            ${{ env.CACHE_SLUG }}-main
+            ${{ env.CACHE_SLUG }}-${{ github.ref_name }}
             ${{ env.CACHE_SLUG }}-
 
       - name: Install Conan
         run: |
           pip.exe install conan;
 
-      - name: Cache Report
+      - name: Report Caches
         run: |
+          ccache -s
           conan search
-
-      - name: Create build directory
-        run: mkdir ${{runner.workspace}}\build
 
       - name: Install dependencies
         working-directory: ${{runner.workspace}}/build
+        run: conan install --build=missing $env:GITHUB_WORKSPACE
+
+      - name: Perform Test
+        run: conan build $env:GITHUB_WORKSPACE
+
+      - name: Report Caches
         run: |
-          conan install `
-            --build=missing `
-            --profile:build $env:GITHUB_WORKSPACE/.github/conan/profiles/${{matrix.build-profile}} `
-            --profile:host $env:GITHUB_WORKSPACE/.github/conan/profiles/${{matrix.host-profile}} `
-            --settings:host build_type="${{matrix.build_type}}" `
-            $env:GITHUB_WORKSPACE
-
-      - name: Build and run tests
-        working-directory: ${{runner.workspace}}/build
-        run: conan build --build --configure --test $env:GITHUB_WORKSPACE
-
-      - name: Run benchmarks
-        working-directory: ${{runner.workspace}}/build
-        run: test\benchmark\${{matrix.build_type}}\test-benchmark.exe
-
-      - name: Cache Report
-        run: |
+          ccache -s
           conan search
-
-  # Test source formatting
-  clang-format:
-    runs-on: ubuntu-20.04
-    container: johnmcfarlane/cnl_ci:clang-13
-    steps:
-      - uses: actions/checkout@v2
-
-      - name: Format code
-        shell: bash
-        run: $GITHUB_WORKSPACE/test/scripts/clang-format
-
-      - name: Show/test for changes
-        shell: bash
-        run: |
-          git diff
-          if [[ `git status --porcelain` ]]; then exit 1; fi
-
-  # Test documentation generation
-  doxygen:
-    runs-on: ubuntu-18.04
-    container: johnmcfarlane/cnl_ci:base-21.10
-    steps:
-      - uses: actions/checkout@v2
-
-      - name: Test Doxyfile
-        shell: bash
-        run: |
-          doxygen -s -u doc/Doxyfile
-          rm doc/Doxyfile.bak
-          git diff --exit-code
-
-      - name: Generate documentation
-        shell: bash
-        run: $GITHUB_WORKSPACE/doc/generate
-
-      - name: Upload documentation
-        uses: actions/upload-artifact@v2
-        with:
-          name: documentation
-          path: ${{github.workspace}}/htdocs
-...
